@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        .areas {
+            stroke: darkgrey;
+            stroke-width: 0.5px;
+        }
+
+        .mouseOverStyle {
+            stroke: black;
+            stroke-width: 1px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1 style="text-align: center">Singapore population size in each district</h1>
+    <div id="tooltip"></div>
+    <div id="legend" style="display: inline-block; margin: 0 auto" >Population</div>
+    <svg style="background-color:lightgrey">
+    </svg>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <script>
+
+        let width = 1000, height = 600;
+
+        let svg = d3.select("svg")
+            .attr("viewBox", "0 0 " + width + " " + height);
+
+        let mapData = new Map();
+
+        let colorScale = d3.scaleSequential().domain([0, 127510])
+            .interpolator(d3.interpolateBlues);
+
+        // Load external data
+        Promise.all([d3.json("https://raw.githubusercontent.com/dustbin96/CSC3007-assignment3/main/sgmap.json"), d3.csv("https://raw.githubusercontent.com/dustbin96/CSC3007-assignment3/main/population2021.csv")]).then(data => {
+
+            console.log(data[0]);
+            console.log(data[1]);
+
+            // Map and projection
+            var projection = d3.geoMercator()
+                .center([103.851959, 1.290270])
+                .fitExtent([[20, 20], [980, 580]], data[0]);
+
+            let geopath = d3.geoPath().projection(projection);
+
+            for (i in data[1]) {
+                mapData.set(String(data[1][i].Subzone).toUpperCase(), parseInt(data[1][i].Population) || 0)
+            }
+
+            // console.log(Math.max(...mapData.values()))\
+
+            // create a tooltip
+            const tooltip = d3.select("#tooltip")
+                .append("div")
+                .style("opacity", 0)
+                .attr("class", "tooltip")
+                .style("background-color", "white")
+                .style("border", "solid")
+                .style("border-width", "2px")
+                .style("border-radius", "5px")
+                .style("padding", "5px")
+                .style("position", "absolute")
+
+            const mouseOver = function (event, d) {
+                d3.select(this)
+                    .transition()
+                    .duration(200)
+                    .attr("class", "mouseOverStyle");
+                d.Population = mapData.get(d.properties.Name);
+                tooltip
+                    .style("opacity", 1)
+                    .html(d.properties.Name + ": " + d.Population)
+                    .style("left", (event.pageX + 20) + "px")
+                    .style("top", (event.pageY - 28) + "px")
+                    .style("text-align", "center");
+            }
+
+            const mouseLeave = function (event, d) {
+                d3.select(this)
+                    .transition()
+                    .duration(200)
+                    .attr("class", "areas");
+                d.Population = mapData.get(d.properties.Name);
+                tooltip
+                    .style("opacity", 0)
+            }
+
+            svg.append("g")
+                .attr("id", "districts")
+                .selectAll("path")
+                .data(data[0].features)
+                .enter()
+                .append("path")
+                .attr("class", "areas")
+                .attr("d", geopath)
+                .attr("fill", function (d) {
+                    d.Population = mapData.get(d.properties.Name);
+                    return colorScale(d.Population);
+                })
+                .on("mouseover", mouseOver)
+                .on("mouseleave", mouseLeave);
+
+            // create continuous color legend
+            function continuous(selector_id, colorscale) {
+                var legendheight = 200,
+                    legendwidth = 80,
+                    margin = { top: 25, right: 60, bottom: 10, left: 2 };
+
+                var canvas = d3.select(selector_id)
+                    .style("height", legendheight + "px")
+                    .style("width", legendwidth + "px")
+                    .style("position", "absolute")
+                    .append("canvas")
+                    .attr("height", legendheight - margin.top - margin.bottom)
+                    .attr("width", 1)
+                    .style("height", (legendheight - margin.top - margin.bottom) + "px")
+                    .style("width", (legendwidth - margin.left - margin.right) + "px")
+                    .style("border", "1px solid #000")
+                    .style("position", "absolute")
+                    .style("top", (margin.top) + "px")
+                    .style("left", (margin.left) + "px")
+                    .node();
+
+                var ctx = canvas.getContext("2d");
+
+                var legendscale = d3.scaleLinear()
+                    .range([1, legendheight - margin.top - margin.bottom])
+                    .domain(colorscale.domain());
+
+                // image data hackery based on http://bl.ocks.org/mbostock/048d21cf747371b11884f75ad896e5a5
+                var image = ctx.createImageData(1, legendheight);
+                d3.range(legendheight).forEach(function (i) {
+                    var c = d3.rgb(colorscale(legendscale.invert(i)));
+                    image.data[4 * i] = c.r;
+                    image.data[4 * i + 1] = c.g;
+                    image.data[4 * i + 2] = c.b;
+                    image.data[4 * i + 3] = 255;
+                });
+                ctx.putImageData(image, 0, 0);
+
+                // A simpler way to do the above, but possibly slower. keep in mind the legend width is stretched because the width attr of the canvas is 1
+                // See http://stackoverflow.com/questions/4899799/whats-the-best-way-to-set-a-single-pixel-in-an-html5-canvas
+                /*
+                d3.range(legendheight).forEach(function(i) {
+                  ctx.fillStyle = colorscale(legendscale.invert(i));
+                  ctx.fillRect(0,i,1,1);
+                });
+                */
+
+                var legendaxis = d3.axisRight()
+                    .scale(legendscale)
+                    .tickSize(6)
+                    .ticks(8);
+
+                var svg = d3.select(selector_id)
+                    .append("svg")
+                    .attr("height", (legendheight) + "px")
+                    .attr("width", (legendwidth) + "px")
+                    .style("position", "absolute")
+                    .style("left", "0px")
+                    .style("top", "0px")
+
+                svg
+                    .append("g")
+                    .attr("class", "axis")
+                    .attr("transform", "translate(" + (legendwidth - margin.left - margin.right + 3) + "," + (margin.top) + ")")
+                    .call(legendaxis);
+            };
+
+            continuous("#legend", colorScale);
+        })
+
+    </script>
+
+</body>
+
+</html>
